@@ -102,7 +102,14 @@ func TestToJS(t *testing.T) {
 		{"float64", 1.5, func(v js.Value) bool { return v.Float() == 1.5 }},
 		{"float32", float32(1.25), func(v js.Value) bool { return v.Float() == 1.25 }},
 		{"bool", true, func(v js.Value) bool { return v.Bool() == true }},
-		{"bytes", []byte("xyz"), func(v js.Value) bool { return v.String() == "xyz" }},
+		{"bytes", []byte("xyz"), func(v js.Value) bool {
+			if !v.InstanceOf(Uint8ArrayClass) {
+				return false
+			}
+			got := make([]byte, v.Length())
+			js.CopyBytesToGo(got, v)
+			return string(got) == "xyz"
+		}},
 		{"slice_any", []any{1, "a"}, func(v js.Value) bool {
 			return v.Length() == 2 && v.Index(0).Int() == 1 && v.Index(1).String() == "a"
 		}},
@@ -126,6 +133,42 @@ func TestToJS(t *testing.T) {
 				t.Errorf("ToJS validation failed for %v", tt.name)
 			}
 		})
+	}
+}
+
+// TestBytes_RoundTrip_NonUTF8 is the real bug this package had: string(val) on encode
+// silently replaces every byte that isn't valid UTF-8 with U+FFFD. This is the exact
+// non-UTF-8 vector MASTER_PLAN.md's fase 0 uses for the same round-trip requirement at the
+// IndexedDB layer — 0x00, 0xFF, an overlong encoding (0xC0 0x80), and a malformed surrogate
+// pair, byte for byte.
+func TestBytes_RoundTrip_NonUTF8(t *testing.T) {
+	original := make([]byte, 1024)
+	for i := range original {
+		original[i] = byte(i % 256)
+	}
+	// Force specific invalid-UTF-8 patterns in, not just relying on the modulo sequence to
+	// contain them incidentally.
+	original[0], original[1] = 0x00, 0xFF
+	original[2], original[3] = 0xC0, 0x80 // overlong encoding of NUL
+	original[4], original[5] = 0xED, 0xA0 // malformed surrogate-pair lead
+
+	val := ToJS(original)
+	if !val.InstanceOf(Uint8ArrayClass) {
+		t.Fatalf("ToJS(non-UTF-8 []byte) did not produce a Uint8Array")
+	}
+
+	var got []byte
+	if err := ToGo(val, &got); err != nil {
+		t.Fatalf("ToGo: %v", err)
+	}
+
+	if len(got) != len(original) {
+		t.Fatalf("round trip length = %d, want %d", len(got), len(original))
+	}
+	for i := range original {
+		if got[i] != original[i] {
+			t.Fatalf("byte %d: got %#x, want %#x (round trip corrupted non-UTF-8 data)", i, got[i], original[i])
+		}
 	}
 }
 

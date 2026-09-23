@@ -27,9 +27,13 @@ lives in `webtyp.com/await`; do not reintroduce it here.
   boundary itself).
 - **0-allocation on the Go side** of the conversion path (reuse writer/reader state). Creating
   the JS object/array allocates on the JS side and is unavoidable; that does not count.
-- **Single `[]byte` contract.** `[]byte` ↔ JS string on encode; decode accepts string AND
-  Uint8Array (D1 blobs arrive as Uint8Array). One helper, reused by `ScanValue` and the codec
-  reader — never re-implement per call site.
+- **Single `[]byte` contract.** `[]byte` → JS `Uint8Array` on encode (`encodeBytes`,
+  `js.CopyBytesToJS` — never `string(val)`: a Go string crosses to JS decoded from UTF-8, so
+  any byte that isn't valid UTF-8 gets silently replaced with U+FFFD, no error, no panic,
+  just corrupted binary data; fixed 2026-09-23, was the encode side's real bug for years).
+  Decode accepts **both** JS string and `Uint8Array` (`decodeBytes`) — string only for
+  backward compatibility with data written before the fix, never write it again. One helper
+  per direction, reused by every writer/reader — never re-implement per call site.
 
 ## Serialization codec (target contract)
 

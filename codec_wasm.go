@@ -22,6 +22,18 @@ func decodeBytes(v js.Value) []byte {
 	return nil
 }
 
+// encodeBytes is the single contract for []byte encoding — the write-side counterpart of
+// decodeBytes. A Go string crosses to JS decoded from UTF-8, so string(val) silently
+// replaces every byte that is not valid UTF-8 with U+FFFD — no error, no panic, just wrong
+// data. []byte is arbitrary binary (a float32 vector, a hash, anything), so that substitution
+// is the rule here, not the edge case. js.CopyBytesToJS is the only lossless path.
+// decodeBytes already accepts a Uint8Array (verified above), so this is backward compatible.
+func encodeBytes(val []byte) js.Value {
+	arr := Uint8ArrayClass.New(len(val))
+	js.CopyBytesToJS(arr, val)
+	return arr
+}
+
 type jsObjectWriter struct {
 	obj js.Value
 }
@@ -31,7 +43,7 @@ func (w *jsObjectWriter) Int(name string, val int64)     { w.obj.Set(name, val) 
 func (w *jsObjectWriter) Uint(name string, val uint64)   { w.obj.Set(name, val) }
 func (w *jsObjectWriter) Float(name string, val float64) { w.obj.Set(name, val) }
 func (w *jsObjectWriter) Bool(name string, val bool)     { w.obj.Set(name, val) }
-func (w *jsObjectWriter) Bytes(name string, val []byte)  { w.obj.Set(name, string(val)) }
+func (w *jsObjectWriter) Bytes(name string, val []byte)  { w.obj.Set(name, encodeBytes(val)) }
 func (w *jsObjectWriter) Null(name string)               { w.obj.Set(name, js.Null()) }
 func (w *jsObjectWriter) Raw(name, val string)           { w.obj.Set(name, js.Global().Call("JSON.parse", val)) }
 
@@ -61,7 +73,7 @@ func (w *jsArrayWriter) String(val string) { w.arr.SetIndex(w.idx, val); w.idx++
 func (w *jsArrayWriter) Int(val int64)     { w.arr.SetIndex(w.idx, val); w.idx++ }
 func (w *jsArrayWriter) Float(val float64) { w.arr.SetIndex(w.idx, val); w.idx++ }
 func (w *jsArrayWriter) Bool(val bool)     { w.arr.SetIndex(w.idx, val); w.idx++ }
-func (w *jsArrayWriter) Bytes(val []byte)  { w.arr.SetIndex(w.idx, string(val)); w.idx++ }
+func (w *jsArrayWriter) Bytes(val []byte)  { w.arr.SetIndex(w.idx, encodeBytes(val)); w.idx++ }
 func (w *jsArrayWriter) Close()            {}
 func (w *jsArrayWriter) Object(val Encodable) {
 	if val == nil || val.IsNil() {

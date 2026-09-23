@@ -54,7 +54,7 @@ func ToJS(data any) js.Value {
 	case float64:
 		return js.ValueOf(v)
 	case []byte:
-		return js.ValueOf(string(v))
+		return encodeBytes(v)
 	case []any:
 		arr := jsArray.New(len(v))
 		for i, item := range v {
